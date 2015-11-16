@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ISR Leaflet</title>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="CSS/leaflet.css" />
+  <script src= js/libs/d3/d3.min.js></script>
+  <script src="js/libs/d3/leaflet-omnivore.min.js"></script>
+  <script src="js/libs/d3/leaflet.js"></script>
+  <script src="js/libs/d3/colorbrewer.js"></script>
+  <script src='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.js'></script>
+  <style>
+	
+         h3{
+		text-align: left;
+                color: red;
+		}
+      
+	path {
+            stroke: white;
+            stroke-width: 0.25px;
+            fill: grey;
+          }
+               #map { height: 360px; width: 900px;}  
+               div.tooltip {	
+                    position: absolute;			
+                    text-align: center;			
+                    width: 120px;					
+                    height: 75px;					
+                    padding: 2px;				
+                    font: 12px sans-serif;		
+                    background: lightsteelblue;	
+                    border: 0px;		
+                    border-radius: 8px;			
+                    pointer-events: none;			
+                }
+	</style>  
+
+  </head>
+<body>
+  <div><h3>(NOT OFFICIAL DATA)</h3></div>
+  <div id="map"></div>
+  <script type="text/javascript">
+    //variables for Colorbrewer  
+    var classes = 9, scheme_id = "Oranges",
+    scheme = colorbrewer[scheme_id][classes],
+    reverse = false;
+    
+    //variables to retrieve map using leaflet
+    var map = L.map('map').setView([25, 70], 3);
+    var mapLink = '<a href="http://thunderforest.com/">Thunderforest</a>';   
+    var mapUrl = 'http://{s}.tile.thunderforest.com/landscape/{z}/{x}/{y}.png',
+            mapAttrib = '&copy; '+mapLink+' Contributors & '+mapLink;
+    
+    //Additional Map layer
+    var FRC_Location_Layer = new L.LayerGroup();
+    
+    
+    //adds attribution and url to lower left hand of the map
+    L.tileLayer(mapUrl, {attribution: mapAttrib, 
+                        continuousWorld: true,
+                        noWrap: true})
+                        .addTo(map);
+    //adds overlay to map
+    var overlays = {"FRCWP Locations": FRC_Location_Layer};
+    
+    //adds checkbox control to map
+    L.control.layers("",overlays).addTo(map);
+    
+    //data array for FRC locations
+    var FRC_Locations = [
+    {"ID":"HQ","Name":"FRCWP HQ","Location":"NAF Atsugi","Lat":35.456528,"Long":139.449892},
+    {"ID":"IWA","Name":"FRCWP Det Iwakuni","Location":"NAF Atsugi","Lat":34.15286,"Long":132.22141},
+    {"ID":"OKI","Name":"FRCWP Det Okinawa","Location":"Camp Butler","Lat":26.349315,"Long":127.771667},
+    {"ID":"GM","Name":"FRCWP Det Guam","Location":"Andersen AFB","Lat":13.587813,"Long":144.924470},
+    {"ID":"MLY","Name":"FRCWP Det Malaysia","Location":"AIROD","Lat":3.139279,"Long":101.550386},
+    {"ID":"KOR","Name":"FRCWP Det Korea","Location":"KAL","Lat":36.027363,"Long":129.423589},
+    {"ID":"CENT","Name":"FRCWP Det CENTCOM","Location":"Kuwait","Lat":29.358399,"Long":47.488871}
+    ];
+
+    //loop to bind a popup to each FRC location
+    for (var i = 0; i < FRC_Locations.length; i++) {
+        marker = new L.marker([FRC_Locations[i].Lat ,FRC_Locations[i].Long],
+            {opacity:0.6})
+        .bindPopup(FRC_Locations[i].Name)
+        .addTo(FRC_Location_Layer)
+        .addTo(map);
+        }
+    
+    //creates the SVG element 
+    map._initPathRoot();
+    
+    //d3 shortcuts for zooming
+    var svg = d3.select("svg"),
+        g = svg.append("g").attr("class", "leaflet-zoom-hide");
+        
+    // Define the div for the tooltip
+    var div = d3.select("body").append("div")	
+        .attr("class", "tooltip")				
+        .style("opacity", 0);    
+    //dataset variable
+    var dataset;
+    
+    //parses date correctly
+    var parseDate = d3.time.format("%_m/%e/%Y %_H:%M").parse;
+    
+    //imports csv file
+    d3.csv("ISRSummaryExportShore.csv", function(error, collection){
+        //error handling    
+        if(error)throw error;
+        
+       //adds data to collection with unary operator 
+       collection.forEach(function(d){
+             //force data into correct data type
+             d.TAT = +d.TAT;
+             d['Date Created'] = parseDate(d['Date Created']);
+             d.LatLng = new L.LatLng(+d.Latitude,+d.Longitude);
+            
+             });
+        //assign data to dataset variable     
+      dataset = collection;
+        
+        // determine min and max TAT
+        var extent = d3.extent(collection, function(d)
+            {
+                return d.TAT;
+            });
+         var scale = d3.scale.log()
+                        .domain(reverse ? extent.reverse() : extent)
+                        .range(d3.range(classes));  
+     
+      //add circles and appropriate styles
+      var feature = g.selectAll("circle")
+        .data(dataset.filter(function(d){return d["ISR Status"]==="Complete";}))
+        .enter()
+        .append("circle")
+        .style("opacity", .3)
+        .attr('stroke-width', 6)
+        .attr('stroke', scheme[classes - 1])
+        .style('fill', function(d){return scheme[(scale(d.TAT)*10).toFixed()/2];})
+        .attr("r", function(d){return Math.sqrt(d.TAT)*1.5;})
+        .on("mouseover", function(d) {		
+            div.transition()		
+                .duration(200)		
+                .style("opacity", .9);		
+            div.html("BUNO: " + d.BUNO + "<br/> TMS: " + d.TMS + "<br/> SQD: " + 
+                    d.Squadron + "<br/>TAT: " +d.TAT +"<br/>" + 
+                    d['Repair Category'])	
+                .style("left", (d3.event.pageX) + "px")		
+                .style("top", (d3.event.pageY - 28) + "px");	
+            })					
+        .on("mouseout", function(d) {		
+            div.transition()		
+                .duration(500)		
+                .style("opacity", 0);	
+        });
+        
+        
+    map.on("viewreset", update);
+    update();
+    
+     //update map 
+function update() {
+          feature.attr("transform", 
+	function(d) { 
+	return "translate("+ 
+	map.latLngToLayerPoint(d.LatLng).x +","+ 
+	map.latLngToLayerPoint(d.LatLng).y +")";
+	}
+	);
+	}
+    
+    }); 
+    
+  </script>
+</body>
+</html>

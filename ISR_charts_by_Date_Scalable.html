@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src= js/libs/d3/d3.min.js></script>
+  <script src= js/libs/d3/index.js></script>
+  <title>FRCWP ISR Events</title>
+  <style>
+		
+		h2{
+		text-align: left;
+		}
+                
+                h3{
+		text-align: left;
+                color: red;
+		}
+                
+                .plot {
+                   fill: rgba(250, 250, 255, 0.6);
+                }
+                
+                .axis text {
+                font: 10px sans-serif;
+                }
+                
+                .axis path,.axis line {
+                  fill: none;
+                  stroke: #000;
+                  shape-rendering: crispEdges;
+                }
+                
+                
+                #filter_options, #filter_options2{
+                    display: inline-block; 
+                    *display: inline; 
+                    zoom: 1; 
+                    vertical-align: top; 
+                    font-size: 12px;
+                    width: 15%;
+                    outline: #000000 solid thin;}
+                
+                /*  http://bl.ocks.org/Caged/6476579
+                    provided framework for CSS of tooltips
+                */
+		.d3-tip {
+                    line-height: 1;
+                    font-weight: bold;
+                    padding: 12px;
+                    background: rgba(0, 0, 0, 0.8);
+                    color: #fff;
+                    border-radius: 2px;
+                }
+
+                .d3-tip:after {
+                  box-sizing: border-box;
+                  display: inline;
+                  font-size: 10px;
+                  width: 100%;
+                  line-height: 1;
+                  color: rgba(0, 0, 0, 0.8);
+                  content: "\25BC";
+                  position: absolute;
+                  text-align: center;
+                }
+
+                .d3-tip.n:after {
+                  margin: -1px 0 0 0;
+                  top: 100%;
+                  left: 0;
+                }	
+                
+	</style>  
+  
+  </head>
+<body>
+  <div id='header'></div>  
+  <div id ="containter">  
+    <div id="filter_options"><b>PLATFORM:</b><br></div>
+    <div id="filter_options2"><b>REGIONS:</b><br></div>
+  </div>
+  <div id="chart"></div>
+  <script type="text/javascript">
+    
+    "use strict";
+    //Chart dimensions and attributes
+    var margin = 75,
+        width = 1400 - margin,
+        height = 600 - margin;
+    var radius = 3; //constant radius
+    var platform;
+    //establishes colors based on categorical data
+    var cValue = function(d) { return d['Repair Category'];},
+         color = d3.scale.category10();
+    //initializes tooltips
+    var tip = d3.tip().attr('class', 'd3-tip')
+            .html(function(d){return d.TAT;});
+    
+    //d3 shortcut
+    var body = d3.select('body');
+    //establishes format to parse date values
+    var parseDate = d3.time.format("%_m/%e/%Y %_H:%M").parse;
+    //sets ranges for x & y axes
+    var time_scale = d3.time.scale()
+         .range([margin,width]);
+    var count_scale = d3.scale.linear()
+        .range([height,margin]);
+    
+    //returns primary key of data
+    function keys(d){return d.ISR_Number;}
+        
+    //Append Chart Title
+    body.select('#header')
+        .append("h2")
+        .text("ISR Turnaround Times")
+        .append('h3')
+        .text('(NOT OFFICIAL DATA)')
+        .attr('fill', "red");
+            
+  //import csv file via request function
+  d3.csv("ISRSummaryExport.csv", function(error, data){
+    //error handling    
+    if(error){console.log(error);
+    }
+
+    //refine data and set to dataset variable
+    //Calls function to Generate Visualization if successful
+    else
+    {
+    data.forEach(function(d){
+         //unary operators force data into correct data type
+        d.ISR_Number = +d.ISR_Number; 
+        d.TAT = +d.TAT;
+        d['Date Created'] = parseDate(d['Date Created']);
+         });
+    //assign data to dataset variable     
+    var dataset = data;
+    
+    //find min and max date values of dataset
+    var time_extent = d3.extent(dataset, function(d)
+    {
+        return d['Date Created'];
+    });
+    
+    //add domain values to range values previously established
+    time_scale.domain(time_extent);
+    count_scale.domain([0,d3.max(dataset, function(d){return d.TAT;})+10]);
+
+    //initializes zoom listener
+    var zoom = d3.behavior.zoom()
+        .x(time_scale)
+        .y(count_scale)
+        .scaleExtent([.050, 10])
+        .on("zoom", zoomed);
+        
+    //Create SVG Element aka blank canvas with dimensions
+    var svg = d3.select('#chart')
+        .append("svg:svg")
+        .attr("width", width + margin)
+        .attr("height", height + margin)
+        .append('svg:g')
+        .attr('class','chart');
+
+   //establishes a rectangle over the chart where the zoom listener be active
+   //Add listener to hide any tooltip on mouse click
+   svg.append("svg:rect")
+    .attr("width", width)
+    .attr("height", height+margin)
+    .attr("class", "plot")
+    .on('click', function(d){
+                //if statement will show tooltip if 
+                if(d3.select('.d3-tip').style('opacity')!=="0"){
+                    tip.style("opacity","0").hide(d);
+                            }
+                  }
+                )
+    .call(zoom);
+    
+    //sets a clip path to hide any element that crosses the axes
+    svg.append('clipPath')
+            .attr('id', 'chart-area')
+            .append('rect')
+            .attr('x',margin)
+            .attr('y',margin)
+            .attr('width', width-margin)
+            .attr('height', height-margin);
+    
+    //establishes x-axis  
+    var create_time_axis = function(){
+         return d3.svg.axis()
+         .scale(time_scale)
+         .ticks(d3.time.month);
+    };
+
+    //establishes y-axis     
+    var create_count_axis = function(){
+         return d3.svg.axis()
+         .scale(count_scale)
+         .orient("left");
+    };
+    
+    //variable to create axes
+    var time_axis = create_time_axis();
+    var count_axis = create_count_axis();
+    
+    //creates tooltip shell using index.js lib
+    //http://bl.ocks.org/Caged/6476579
+    //provided framework for CSS of tooltips
+    var tip = d3.tip().attr('class', 'd3-tip').attr('opacity',"0")
+        .html(function(d){ //displays text in tooltip
+            return "BUNO: " + d.BUNO + "<br/> TMS: " + d.TMS + 
+                "<br/> SQD: " +d.Squadron + "<br/>TAT: " +d.TAT +
+                "<br/>" + d['Repair Category'];
+        });     
+    //initialize tooltips
+    svg.call(tip);
+
+    //draw x-axis on svg element
+    svg.append('g')
+         .attr('class','x axis')
+         .attr('transform', "translate(0,"+height+")")
+         .call(time_axis);
+
+    //draw y-axis on svg element
+    svg.append('g')
+         .attr('class','y axis')
+         .attr('transform', "translate("+margin+",0)")
+         .call(count_axis);
+
+    //adds label to y-axis     
+    svg.append("text")
+       .attr("class", "y label")
+       .attr("text-anchor", "end")
+       .attr("y", 15)
+       .attr("dy", ".55em")
+       .attr("x", -100)
+       .attr("dx", ".55em")
+       .attr("transform", "rotate(-90)")
+       .text("Turnaround Time (Days)");
+   
+    //binds dataset to SVG circle elements
+    svg.append('g')
+            .attr('id', 'circles')
+            .attr('clip-path', 'url(#chart-area)')
+            .selectAll("circle")
+         .data(dataset, keys)
+         .enter()
+         .append("circle");
+ 
+    //plot circle elements onto graph by adding attributes
+    svg.selectAll('circle')
+            .attr('cx', function(d){
+                //returns x coordinate
+                return time_scale(d['Date Created']);
+            })
+            .attr('cy', function(d){
+                //returns y coordinate
+                return count_scale(d['TAT']);
+            })
+            //sets radius
+            .attr('r', radius)
+            //sets circle color
+            .style("fill", function(d) { return color(cValue(d));}) 
+            //uses index.js lib to create tooltip on mouse click
+            .on('click', function(d){
+                //if statement will show tooltip if 
+                if(d3.select('.d3-tip').style('opacity')==="0"){
+                    tip.style("opacity","1").show(d);
+                            }
+                  else{
+                      tip.style("opacity","0").hide(d);}}
+                )
+            //changes size and color when mouse hovers over circle
+            .on('mouseover',function(d) {
+                d3.select(this).attr("r",radius*1.5).style("fill", "red");
+            })
+            //reverts to default size and color 
+            //when mouse exits the circle
+            .on("mouseout", function(d) {
+                d3.select(this).attr("r",radius)
+                  .style("fill", function(d) { return color(cValue(d));}); 
+            });
+
+            //http://bl.ocks.org/weiglemc/6185069 provided much of the code
+            //to draw the legend
+              var legend = svg.selectAll(".legend")
+                  .data(color.domain().sort())
+                  .enter().append("g")
+                  .attr("class", "legend")
+                  .attr("transform", function(d, i) { 
+                      return "translate(0," + i * 20 + ")"; });
+            
+            // draw legend text
+            legend.append("text")
+                  .attr("x", width - 30)
+                  .attr("y", 9)
+                  .attr("dy", ".35em")
+                  .style("text-anchor", "end")
+                  .text(function(d) { return d;});
+          
+              // draw legend colored rectangles
+              legend.append("rect")
+                  .attr("x", width - 18)
+                  .attr("width", 18)
+                  .attr("height", 18)
+                  .style("fill", color);
+
+    //returns an array of unique platform values       
+    var platformNest = d3.nest().key(function(d) { return d.PLATFORM;})
+                                .sortKeys(d3.ascending)
+                                .entries(dataset);
+
+    //returns an array of unique Region values
+    var regionNest = d3.nest().key(function(d) { return d.Region;})
+                              .sortKeys(d3.ascending)
+                              .entries(dataset);
+
+    //populates the checkbox filter with region values   
+    d3.select("#filter_options2")
+      .selectAll("input")
+      .data(regionNest)
+      .enter()
+      .append('label')
+      .text(function (d) { return d.key; })
+      .append("input")
+      .attr("class", "region_filter")
+      .attr("value", function (d) { return d.key; })
+      .attr("checked", true)
+      .attr("type", "checkbox")
+      .attr("id", function (d) { return d.key; });
+
+   //puts a line break between each checkbox option
+   d3.select("#filter_options2")
+     .selectAll("label").append('br');
+
+   //when a checkbox changes perform an update based on values selected
+   //assistance with this code came from
+   //https://stackoverflow.com/questions/15044385/d3-map-with-checkbox-filtering
+   d3.selectAll(".region_filter")
+     .on('change', updatePlatform).on("change", function() {
+        var type = this.value,
+        display = this.checked ? "inline" : "none";
+                  
+            d3.transition().duration(1500).selectAll("circle")
+              .filter(function(d) { return type === d.Region; })
+              .attr("display", display);
+                  });
+
+    //dropdown variable for Aircraft Platform
+    var dropDown = d3.select("#filter_options").append("select")
+                .attr("name", "PLATFORM");
+        
+    //creates dropdown list with unique platform names             
+    var options = dropDown.selectAll("option")
+       .data([{Key:"All"}].concat(platformNest))
+       .enter()
+       .append("option");
+    
+    //dynamically adds text options dropdown menu        
+    options.text(function (d) { return d.key; })
+           .attr("value", function (d) { return d.key; });
+    //calls update when change is made 
+    dropDown.on("change", updatePlatform);
+
+    //updates circle elements based on dropdown selection
+    function updatePlatform(){
+
+          var selected = this.value,
+          displayOthers = this.checked ? "inline" : "none",
+          display = this.checked ? "none" : "inline";
+
+          if(selected === ''){
+                svg.transition().duration(700).selectAll("circle")
+                    .transition().duration(700)
+                    .attr("display", display);
+          }
+          else{
+
+            svg.transition().duration(700).selectAll("circle")
+            .transition().duration(700)
+              .filter(function(d) {return selected !== d.PLATFORM;})
+              .attr("display", displayOthers);
+
+            svg.selectAll("circle")
+              .filter(function(d) {return selected === d.PLATFORM;})
+              .attr("display", display);
+
+                }//end if-else
+        }//end of updatePlatform 
+
+     //for zoom listener   
+     function zoomed() {
+          
+          //hide tooltips
+          if(d3.select('.d3-tip').style('opacity')!=="0"){
+                tip.style("opacity","0").hide(d);
+                }
+          
+          //redraw x-axis
+          //determines if x axis labels should change based on zoom level  
+          if(zoom.scale() > 10.5){
+                svg.select(".x.axis").call(time_axis)
+                .call(create_time_axis()
+                .ticks(d3.time.day)
+                .tickFormat(d3.time.format("%d")));
+            }
+            else if(zoom.scale() > 4){
+                svg.select(".x.axis").call(time_axis)
+                .call(create_time_axis()
+                .ticks(d3.time.week));
+            }else if (zoom.scale() < 0.75){
+                svg.select(".x.axis").call(time_axis)
+                .call(create_time_axis()
+                .ticks(d3.time.year));
+            }else{
+                svg.select(".x.axis").call(time_axis)
+                    .call(create_time_axis()
+                    .ticks(d3.time.month));
+            }//end nested if
+            
+            //redraw y-axis
+            svg.select(".y.axis").call(count_axis);
+            
+            //redraws circles to scale
+            svg.selectAll('circle')
+                 .attr("transform","translate("+ 
+                    d3.event.translate.join(",")+")scale("
+                    +d3.event.scale+")");
+      }//end function zoomed()
+  }//end of looooong else statement
+});//end d3.csv function
+        </script>
+</body>
+</html>

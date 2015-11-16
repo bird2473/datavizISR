@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src= js/libs/d3/d3.min.js></script>
+  <script src="js/libs/d3/topojson.js"></script>
+  <script src= js/libs/d3/index.js></script>
+  <title>Historical ISRs across the Globe</title>
+  <style>
+                /*  http://bl.ocks.org/Caged/6476579
+                    provided framework for CSS of tooltips
+                */
+                h3{
+		text-align: left;
+                color: red;
+		}
+                
+               .tooltip {
+                 line-height: 1;
+                 font-weight: bold;
+                 padding: 12px;
+                 background: rgba(0, 0, 0, 0.8);
+                 color: #fff;
+                 border-radius: 2px;
+                }
+
+                .tooltip:after {
+                  box-sizing: border-box;
+                  display: inline;
+                  font-size: 10px;
+                  width: 100%;
+                  line-height: 1;
+                  color: rgba(0, 0, 0, 0.8);
+                  content: "\25BC";
+                  position: absolute;
+                  text-align: center;
+                }
+
+                .tooltip.n:after {
+                  margin: -1px 0 0 0;
+                  top: 100%;
+                  left: 0;
+                }	
+       
+                     
+</style>  
+  
+</head>
+<body>
+    <h1>FRCWP ISRs</h1>
+    <h3>(NOT OFFICIAL DATA)</h3>
+    <div id="map"></div>
+    
+  <script type="text/javascript">
+    //function will setup map and web elements
+    function drawMap(geo_data){
+        //chart dimensions
+        var margin = 50,
+        width = 960-margin,
+        height = 500-margin; //cuts off Antartica in default view
+       
+        //creates map elements and assigns to variabls
+        var map = d3.select("body")
+                .select('#map')
+                .attr("width", width + margin)
+                .attr("height", height + margin)
+                .append("svg")
+                .attr("width", width + margin)
+                .attr("height", height + margin)
+                .append('g')
+                .attr('class', 'map');
+        
+       //sets the map to a mercator(flat) projection
+       var projection = d3.geo.mercator()
+               .scale(150)
+               .translate([width/2 , height/1.5]);
+       
+       //generates path for mercator projection
+       var path = d3.geo.path()
+               .projection(projection);
+       
+       //d3 shortcut
+       var svg = d3.select("body")
+                .select('#map')
+                .select('svg');
+       //d3 shortcut            
+       var g = svg.select('g');
+       
+       //draw map 
+       map.selectAll('path')
+               .data(geo_data.features)
+               .enter()
+               .append('path')
+               .attr('d',path)
+               //fills in Navy/USMC ships with appropriate colors
+               .style('fill', function(d){
+                    if (d.id === 'CVN'){return 'gray';}
+                    else if(d.id === 'LHD'){return 'rgb(51, 102, 0)';}
+                    else{return 'rgb(158,202,225)';}
+                })
+               .style('stroke', 'black')
+               .style('stroke-width', 0.5);
+       
+       //assigns zoom listener for zooming and panning the map
+       var zoom = d3.behavior.zoom()
+            .on("zoom",function() {
+            g.attr("transform","translate("+ 
+                    d3.event.translate.join(",")+")scale("+d3.event.scale+")");
+            d3.select("body")
+            .select('#map').select('g').selectAll("path")  
+               .attr("d", path.projection(projection)); 
+                });
+           
+      //initializes zoom
+      svg.call(zoom);
+       
+       //function draw circles for ISR events
+       function drawISR(data){
+           
+           //aggregate() receives each 'leaf'(location) from a table and 
+           //averages the TAT. The function returns the Avg TAT, Lat/Long
+           //Location, and the number of ISRs for the location
+           function aggregate(leaves){
+             //calculate Averaage TAT
+                var TAT_Avg = d3.mean(leaves, function(d){ 
+                        
+                        return d.TAT;
+                        });
+                //Variable will return the location of the data leaf
+                var location = leaves[0].Location;
+                
+                //Assigns coordinates and parses Lat and Long separately
+                var coordinates = leaves.map(function(d){
+                         return projection([+d.Longitude, +d.Latitude]);
+                     });
+                var latitude = d3.mean(coordinates, function(d) {
+                    return d[1];
+                });
+                var longitude = d3.mean(coordinates, function(d) {
+                    return d[0];
+                });
+                //Assigns the number of records in each location
+                var ISR_Count = leaves.length;
+                //returns data elements which will be used in mapping
+                return {
+                      'Avg TAT' : TAT_Avg,
+                      'Lat': latitude,
+                      'Lng': longitude,
+                      'Location': location,
+                      'ISRs' : ISR_Count
+                      };
+                    
+           }//end aggragate()
+           
+           
+           //nest data with location as the key and call the aggregate function
+           var nested = d3.nest()
+                 .key(function(d){
+                  return d['Location'];  
+                 })
+                 .rollup(aggregate)
+                 .entries(data);
+            
+            //ISR frequencies of all 'Leaves' are assigned a range 
+            var ISR_extent = d3.extent(nested, function(d){
+                return d.values['ISRs'];
+            });
+            
+            //Avg frequencies of all 'Leaves' are assigned a range 
+            var TAT_extent = d3.extent(nested, function(d){
+                return d.values['Avg TAT'];
+            });
+           
+            //opacity range(%) is determined by the sqrt of the domain
+            var opacity = d3.scale.sqrt()
+                    .domain(TAT_extent)
+                    .range([0,0.9]);
+           
+            //radius range is derived from ISR Count domain
+            var radius = d3.scale.sqrt()
+                    .domain(ISR_extent)
+                    .range([2,12]);
+            
+            //creates tooltip shell using index.js lib
+            //http://bl.ocks.org/Caged/6476579
+            //provided framework for CSS of tooltips
+            var tip = d3.tip().attr('class', 'tooltip').html(function(d){
+                return "Location: " + d.values['Location'] +
+                       "<br/> ISR Events: " + d.values['ISRs'] +
+                       "<br/> Avg TAT(Days): "+d.values['Avg TAT'].toFixed(1);
+               
+                });     
+            //initializes tooltips
+            svg.call(tip);
+            
+            //render bubbles
+            g.attr('class','bubble')
+                   .selectAll('circle')
+                   //sorts data 'leaves' so the smaller circle is rendered last
+                   //so it is placed on top of bigger circles and visible to 
+                   //the user
+                   .data(nested.sort(function(a,b){
+                       return b.values['ISRs'] - a.values['ISRs'];
+                   }))
+                   .enter()
+                   .append('circle')
+                   .attr('fill', 'red')
+                   .attr('stroke', 'black')
+                   .attr('stroke-width', 0.3)
+                   //sets opacity of bubbles based on Avg TAT
+                   .attr('opacity',function(d){ return opacity(d.values['Avg TAT']);})
+                   //sets location based on lat/long
+                   .attr('cx', function(d){ return d.values['Lng'];})
+                   .attr('cy', function(d){ return d.values['Lat'];})
+                   //sets radius based on number of events
+                   .attr('r', function(d){ return radius(d.values['ISRs']);})
+                   //changes size and color when mouse hovers over circle
+                   //and shows tooltip
+                   .on('mouseover',function(d) {
+                        
+                        d3.select(this).attr("fill", "yellow")
+                                .attr('opacity',1); tip.show(d);
+                        })
+                   //reverts to default size and color when mouse exits the circle
+                   //and hides tooltip
+                   .on("mouseout", function(d) {
+                   
+                        d3.select(this).attr("fill", 'red')
+                            .attr('opacity',function(d){ return opacity(d.values['Avg TAT']);});
+                            tip.hide(d);
+                        });
+        }//end drawISR()
+        
+
+       //parses date value correctly
+       var parseDate = d3.time.format("%_m/%e/%Y %_H:%M").parse;
+       
+       //imports csv file and uses unary operators
+       d3.csv("ISRSummaryExport.csv", function(d){
+                 d.ISR_Number = +d.ISR_Number;
+                 d.TAT = +d.TAT;
+                 d['Date Created'] = parseDate(d['Date Created']);
+                 return d;
+            //call drawISR()
+            }, drawISR);
+    }//end of drawMap()
+    
+    //dataset variable will hold imported topoJSON file  
+    d3.json("world_countries.json", drawMap);
+    
+    
+        </script>
+</body>
+</html>

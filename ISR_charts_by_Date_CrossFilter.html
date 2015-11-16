@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src= js/libs/d3/d3.min.js></script>
+  <script src= js/libs/d3/crossfilter.min.js></script>
+  <script src= js/libs/d3/dc.min.js></script>
+  <link href='CSS/dc.css' rel='stylesheet' type='text/css'>
+  <style>
+        h3{
+		text-align: left;
+                color: red;
+		}
+        table {
+            max-width: 100%;
+            background-color: transparent;
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+      .table th {
+        font-weight: bold;
+       }
+       th, td {
+            padding: 8px;
+            line-height: 20px;
+            text-align: left;
+            vertical-align: top;
+            border-top: 1px solid #ddd;
+        }
+ 
+  </style>
+</head>
+<body>
+  <div id='header'></div>  
+  <div class='row'>
+    <div id="isr-linechart"></div>
+  </div>
+  <div class='row'>
+      <div id="data-table">
+  <table class='table table-hover' id='dc-table-graph'>
+    <thead>
+    <tr class='header'>
+        <th>ISR#</th>
+        <th>Platform</th>
+        <th>Squadron</th>
+        <th>TAT</th>
+        <th>Date</th>
+    </tr>
+    </thead>
+    </table>
+     </div>
+  </div>
+  <script type="text/javascript">
+    
+   
+    var margin = 75,
+        width = 1400 - margin,
+        height = 600 - margin;
+    
+    var body = d3.select('body');
+    var parseDate = d3.time.format("%_m/%e/%Y %_H:%M").parse;
+    var time_scale = d3.time.scale()
+         .range([margin,width]);
+    var count_scale = d3.scale.linear()
+        .range([height,margin]);
+    
+    //variables assigned the specific chart to be rendered
+    var lineChart = dc.lineChart('#isr-linechart');
+    var dataTable = dc.dataTable('#data-table');
+    
+        //Append Chart Title
+        body.select('#header')
+            .append("h2")
+            .text("ISR Turnaround Times")
+            .append('h3')
+            .text('(NOT OFFICIAL DATA)')
+            .attr('fill', "red");
+            
+      //import csv file via request function
+      d3.csv("ISRSummaryExport.csv", function(data){
+        
+        //unary functions transform date
+        data.forEach(function(d){
+            d.ISR_Number = +d.ISR_Number; 
+            d.TAT = +d.TAT;
+            d['Date Created'] = parseDate(d['Date Created']);
+             });
+        //assign data to dataset variable     
+        var dataset = crossfilter(data);
+        
+        //uses the dimension function to slice data by Date,month, and TAT
+        var byDate = dataset.dimension(function(d){
+            return d['Date Created'];});
+        var byTAT = dataset.dimension(function(d){return d.TAT;});
+        var eventsPerMonth = dataset.dimension(function(d){
+            return d3.time.month(d['Date Created']);});
+        //groups data by month
+        var eventsPerMonthGrp = eventsPerMonth.group()
+                .reduceCount(function(d){return d['Date Created'];});
+        //determines max/min values for axes
+        var maxDate = byDate.top(1);
+        var minDate = byDate.bottom(1);
+        var maxTAT = byTAT.top(1);
+
+        //sets x-axes max and min
+        //uses offset to include all the dates that were being cutoff
+        var time_extent = [
+                   d3.time.day.offset(minDate[0]['Date Created'],-20),
+                   d3.time.day.offset(maxDate[0]['Date Created'],10)];
+      
+        //establish domains for the two axes
+        time_scale.domain(time_extent);
+        count_scale.domain([0,maxTAT[0].TAT]);
+
+        //Uses DC.js to create a data table 
+        dataTable.width(960).height(800)
+            .dimension(eventsPerMonth)
+            //data is grouped to the table
+            .group(function(d) { return "";
+            })
+            //50 rows
+            .size(50)
+            //populate columns/rows
+            .columns([
+                function(d) { return d.ISR_Number; },
+                function(d) { return d.PLATFORM; },
+                function(d) { return d.Squadron; },
+                function(d) { return d.TAT; },
+                function(d) { return d['Date Created']; }])
+             //sort ascending by date created
+             .sortBy(function(d){return d['Date Created'];})
+             .order(d3.ascending);
+
+        //creates a line chart with events per month along the y-axis
+        //and time along the x axis
+        lineChart.width(960)
+            .height(300)
+            .dimension(eventsPerMonth)
+            .group(eventsPerMonthGrp)
+            .transitionDuration(300)
+            .x(time_scale)
+            .xAxis();
+              
+        //renders both charts
+        //could also use .renderAll
+         lineChart.render();
+         dataTable.render(); 
+      });       
+     
+        </script>
+</body>
+</html>
